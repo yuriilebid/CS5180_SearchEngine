@@ -6,9 +6,11 @@ Loads index.pkl from the project root (parent of this directory).
 
 from __future__ import annotations
 
+import difflib
 import json
 import math
 import os
+import re
 import sys
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,11 +20,9 @@ sys.path.insert(0, _ROOT)
 
 from flask import Flask, jsonify, render_template, request
 
-from bill_score import score_bill_bm25
 from evaluator import _open_json_first
 from retrieval import (
     adl,
-    doc_ids,
     doc_lengths,
     int_id_lookup,
     inverted,
@@ -45,6 +45,7 @@ app = Flask(
 
 PAGE_SIZE_DEFAULT = 5
 MAX_RANK_DEPTH = 2000
+PAGER_MAX_PAGES = 5
 
 _SCORE_FNS = {
     "bm25": score_bm25,
@@ -58,6 +59,94 @@ _SCORE_FNS = {
 
 _doc_text: dict[str, str] | None = None
 _qrels_map: dict[str, set[str]] | None = None
+_query_texts_cache: list[str] | None = None
+
+SUGGEST_PREFIX_MIN_LEN = 2
+SUGGEST_LIMIT_CAP = 12
+SUGGEST_MAX_EXTRA_WORDS = 6
+SUGGEST_MAX_QUESTION_WORDS = 48
+
+_QUESTION_LEAD = re.compile(
+    r"^\s*(what|why|how|when|where|who|whose|which|whom|can|could|should|would|"
+    r"is|are|was|were|am|do|does|did|has|have|had|must|may|might|shall|will|"
+    r"aren't|isn't|wasn't|weren't|don't|doesn't|didn't|hasn't|haven't|hadn't|can't|cannot)\b",
+    re.I,
+)
+
+
+def _looks_like_question(text: str) -> bool:
+    s = text.strip()
+    if not s:
+        return False
+    if s.endswith("?"):
+        return True
+    return bool(_QUESTION_LEAD.match(s))
+
+
+def _within_suggestion_word_budget(raw: str, suggestion: str) -> bool:
+    """Suggestion must not exceed typed word count + ``SUGGEST_MAX_EXTRA_WORDS`` (hard cap)."""
+    typed_n = len(raw.strip().split())
+    cap = typed_n + SUGGEST_MAX_EXTRA_WORDS
+    w = len(suggestion.strip().split())
+    return w <= min(cap, SUGGEST_MAX_QUESTION_WORDS)
+
+
+def _query_stems(raw: str) -> list[str]:
+    return preprocess(raw)
+
+
+def _stem_match_count(raw: str, suggestion: str) -> int:
+    q = _query_stems(raw)
+    if not q:
+        return 0
+    s_set = set(preprocess(suggestion))
+    return sum(1 for stem in q if stem in s_set)
+
+
+def _min_stems_required(raw: str, relaxed: bool) -> int | None:
+    """None means skip stem gate (query had no content tokens after preprocessing)."""
+    q = _query_stems(raw)
+    if not q:
+        return None
+    if relaxed:
+        return max(1, len(q) - 1) if len(q) > 1 else 1
+    return len(q)
+
+
+def _fuzzy_cutoff_for_prefix_len(n: int) -> float:
+    """Looser cutoff for longer typed prefixes (short prefixes stay strict to limit noise)."""
+    if n <= 2:
+        return 0.45
+    if n <= 4:
+        return 0.30
+    return 0.26
+
+
+def _fuzzy_start_ratio(raw: str, candidate: str) -> float:
+    """Similarity between typed prefix and the start of the candidate (case-insensitive)."""
+    r = raw.strip().lower()
+    c = candidate.strip().lower()
+    if not r or not c:
+        return 0.0
+    nr, nc = len(r), len(c)
+    if nc >= nr:
+        chunk, sub_r = c[:nr], r
+    else:
+        chunk, sub_r = c, r[:nc]
+    return difflib.SequenceMatcher(None, sub_r, chunk).ratio()
+
+
+def _best_fuzzy_score(raw: str, candidate: str) -> float:
+    """How well the candidate matches what the user typed (prefix-first, plus whole-string hint)."""
+    r = raw.strip()
+    c = candidate.strip()
+    if not r or not c:
+        return 0.0
+    if c.lower().startswith(r.lower()):
+        return 1.0
+    start = _fuzzy_start_ratio(r, c)
+    whole = difflib.SequenceMatcher(None, r.lower(), c.lower()).ratio()
+    return max(start, whole * 0.88)
 
 
 def _load_doc_text() -> dict[str, str]:
@@ -103,8 +192,115 @@ def _title_for_doc(doc_id: str, text: str) -> str:
     return line
 
 
-def _bill_available() -> bool:
-    return os.path.isfile(os.path.join(_ROOT, "bill_index.pkl"))
+def _load_query_texts() -> list[str]:
+    global _query_texts_cache
+    if _query_texts_cache is not None:
+        return _query_texts_cache
+    rows = None
+    for path in (
+        os.path.join(_ROOT, "dataset", "queries.json"),
+        os.path.join(_ROOT, "queries.json"),
+    ):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                rows = json.load(f)
+            break
+        except OSError:
+            continue
+    if rows is None:
+        try:
+            with _open_json_first("queries.json") as f:
+                rows = json.load(f)
+        except OSError:
+            _query_texts_cache = []
+            return _query_texts_cache
+    _query_texts_cache = sorted(
+        {str(row.get("text", "")).strip() for row in rows if row.get("text")},
+        key=lambda s: s.lower(),
+    )
+    return _query_texts_cache
+
+
+def _continuation_display(typed: str, corpus_text: str) -> str:
+    """Show suggestion as typed-prefix + remainder (match user’s casing on the prefix)."""
+    t = typed.strip()
+    s = corpus_text.strip()
+    if not t:
+        return s
+    if not s.lower().startswith(t.lower()):
+        return s
+    return t + s[len(t) :]
+
+
+def _suggestions_for_prefix(prefix: str, limit: int) -> list[dict]:
+    """
+    Benchmark questions only. Rules:
+
+    - Word budget: suggestion length ≤ ``typed_words + SUGGEST_MAX_EXTRA_WORDS``
+      (also capped by ``SUGGEST_MAX_QUESTION_WORDS``).
+    - Lexical relevance: every stem from ``preprocess(typed)`` must appear in the
+      suggestion (same stemming as retrieval). If that yields nothing, relax once to
+      ``max(1, len(stems)-1)`` matches so sparse corpora still return results.
+    - Rank by stem overlap count, then fuzzy prefix score, then brevity.
+    """
+    raw = prefix.strip()
+    if len(raw) < SUGGEST_PREFIX_MIN_LEN:
+        return []
+
+    cutoff = _fuzzy_cutoff_for_prefix_len(len(raw))
+    scored: list[tuple[int, float, float, str, str]] = []
+
+    for relaxed in (False, True):
+        scored.clear()
+        seen_lower: set[str] = set()
+        min_stems = _min_stems_required(raw, relaxed)
+
+        for text in _load_query_texts():
+            t = text.strip()
+            if (
+                not t
+                or not _looks_like_question(t)
+                or not _within_suggestion_word_budget(raw, t)
+            ):
+                continue
+            tl = t.lower()
+            if tl in seen_lower:
+                continue
+            if min_stems is not None:
+                mc = _stem_match_count(raw, t)
+                if mc < min_stems:
+                    continue
+            score = _best_fuzzy_score(raw, t)
+            if score < cutoff:
+                continue
+            seen_lower.add(tl)
+            stem_hits = _stem_match_count(raw, t) if min_stems is not None else 0
+            tie = float(5000 - len(t))
+            if t.lower().startswith(raw.lower()):
+                score += 0.5
+            scored.append((stem_hits, score, tie, t, "query"))
+
+        if scored:
+            break
+
+    scored.sort(
+        key=lambda x: (-x[0], -x[1], -x[2], len(x[3]), x[3].lower()),
+    )
+    out: list[dict] = []
+    seen_final: set[str] = set()
+    for _hits, _score, _tie, text, source in scored:
+        if text.lower().startswith(raw.lower()):
+            display = _continuation_display(raw, text)
+        else:
+            display = text
+        key = display.lower()
+        if key in seen_final:
+            continue
+        seen_final.add(key)
+        out.append({"text": display, "source": source})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _run_search(
@@ -118,20 +314,24 @@ def _run_search(
     if not query:
         return {"error": "empty_query"}, 400
 
-    if model == "bill_bm25":
-        score_fn = score_bill_bm25
-    else:
-        score_fn = _SCORE_FNS.get(model)
+    score_fn = _SCORE_FNS.get(model)
     if score_fn is None:
         return {"error": "unknown_model"}, 400
 
-    try:
-        need = min(page * page_size, MAX_RANK_DEPTH)
-        need = max(need, page_size)
-        ranked = score_fn(query, need)
-    except FileNotFoundError as e:
-        return {"error": "bill_index_missing", "detail": str(e)}, 503
+    # Enough depth for UI pager (e.g. 5 pages × 5 hits = 25), not only current page.
+    max_ui_rank_depth = min(PAGER_MAX_PAGES * page_size, MAX_RANK_DEPTH)
+    need = max(
+        page_size,
+        max_ui_rank_depth,
+        min(page * page_size, MAX_RANK_DEPTH),
+    )
+    ranked = score_fn(query, need)
 
+    effective_pages = min(
+        PAGER_MAX_PAGES,
+        max(1, math.ceil(len(ranked) / page_size)),
+    )
+    page = max(1, min(page, effective_pages))
     start = (page - 1) * page_size
     window = ranked[start : start + page_size]
     ranked_ids = [d for d, _ in ranked]
@@ -193,11 +393,9 @@ def _run_search(
             }
         )
 
-    has_more = (start + page_size) < len(ranked)
-    if len(ranked) >= MAX_RANK_DEPTH and (start + page_size) >= MAX_RANK_DEPTH:
-        has_more = False
+    has_more = page < effective_pages
 
-    return {
+    out: dict = {
         "query": query,
         "model": model,
         "page": page,
@@ -205,11 +403,34 @@ def _run_search(
         "returned": len(results),
         "depth": len(ranked),
         "has_more": has_more,
+        "pager_max_pages": PAGER_MAX_PAGES,
+        "pager_total_pages": effective_pages,
         "query_id": qid_key,
         "qrels_active": qrels_active,
         "total_relevant_in_qrels": total_rel if qrels_active else 0,
         "results": results,
-    }, 200
+    }
+    return out, 200
+
+
+@app.route("/api/explain", methods=["POST"])
+def api_explain():
+    """Structured breakdown of ranking math for one query / document / model."""
+    from explain_ranking import build_explanation
+
+    data = request.get_json(silent=True) or {}
+    q = (data.get("q") or "").strip()
+    doc_id = (data.get("doc_id") or "").strip()
+    model = (data.get("model") or "bm25").strip().lower()
+    if not q or not doc_id:
+        return jsonify({"error": "missing_q_or_doc"}), 400
+    out = build_explanation(q, doc_id, model)
+    err = out.get("error")
+    if err == "unknown_model":
+        return jsonify(out), 400
+    if err == "unknown_doc":
+        return jsonify(out), 404
+    return jsonify(out)
 
 
 @app.route("/")
@@ -219,7 +440,6 @@ def index():
 
 @app.route("/api/models", methods=["GET"])
 def api_models():
-    bill_ok = _bill_available()
     models = [
         {"id": "bm25", "label": "BM25", "available": True},
         {"id": "vsm", "label": "VSM (TF-IDF cosine)", "available": True},
@@ -228,13 +448,20 @@ def api_models():
         {"id": "hybrid_rrf", "label": "Hybrid RRF", "available": True},
         {"id": "rocchio_prf", "label": "Rocchio PRF", "available": True},
         {"id": "rm3", "label": "RM3", "available": True},
-        {
-            "id": "bill_bm25",
-            "label": "Bill BM25 (finance index)",
-            "available": bill_ok,
-        },
     ]
     return jsonify({"models": models, "default_model": "bm25"})
+
+
+@app.route("/api/suggest", methods=["GET"])
+def api_suggest():
+    q = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 8))
+    except (TypeError, ValueError):
+        limit = 8
+    limit = max(1, min(limit, SUGGEST_LIMIT_CAP))
+    suggestions = _suggestions_for_prefix(q, limit)
+    return jsonify({"suggestions": suggestions})
 
 
 @app.route("/api/search", methods=["POST"])
@@ -254,7 +481,6 @@ def api_search():
     qid = data.get("query_id")
     if qid is not None:
         qid = str(qid).strip() or None
-
     payload, status = _run_search(query, model, page, page_size, qid)
     return jsonify(payload), status
 

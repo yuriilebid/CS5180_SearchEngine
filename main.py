@@ -6,7 +6,6 @@ import json
 import re
 import sys
 
-from bill_score import score_bill_bm25
 from evaluator import (
     _load_queries_and_qrels,
     evaluate_model,
@@ -141,8 +140,7 @@ def interactive():
     lookup = _load_query_id_to_text()
     print(
         "\nOffline-first IR — models use precomputed index.pkl only.\n"
-        "Available: BM25, VSM, BIM, Dirichlet LM, Hybrid RRF, Rocchio PRF, RM3, "
-        "Bill BM25 (finance-aware index).\n\n"
+        "Available: BM25, VSM, BIM, Dirichlet LM, Hybrid RRF, Rocchio PRF, RM3.\n\n"
         "Query input: plain text, or labeled — `id | text`, `id<TAB>text`, "
         "`123: rest of query`, or `@id` to load text from queries.json.\n"
     )
@@ -154,7 +152,6 @@ def interactive():
         "[5] Hybrid RRF (BM25 + VSM + RM3)\n"
         "[6] Rocchio PRF\n"
         "[7] RM3 Query Expansion\n"
-        "[8] Bill BM25 (finance preprocessor + teammate index)\n"
         "[q] Quit\n"
     )
     dispatch = {
@@ -165,7 +162,6 @@ def interactive():
         "5": score_hybrid_rrf,
         "6": score_rocchio_prf,
         "7": score_rm3,
-        "8": score_bill_bm25,
     }
     while True:
         print(menu)
@@ -181,11 +177,7 @@ def interactive():
         label, qtext = parse_labeled_query(q_raw, lookup)
         if not qtext:
             continue
-        try:
-            ranked = dispatch[sel](qtext, 25)
-        except FileNotFoundError as err:
-            print(f"{err}\n(For Bill BM25, run: python bill_index_builder.py)\n")
-            continue
+        ranked = dispatch[sel](qtext, 25)
         display_results(ranked, query_label=label, query_text=qtext)
         print()
 
@@ -242,22 +234,12 @@ if __name__ == "__main__":
             "Hybrid-RRF": score_hybrid_rrf,
             "Rocchio-PRF": score_rocchio_prf,
             "RM3": score_rm3,
-            "Bill-BM25": score_bill_bm25,
         }
 
         summary_rows = []
         for name, fn in models.items():
             print(f"\n{'=' * 60}\n{name}\n{'=' * 60}")
-            try:
-                results = evaluate_model(fn, retrieve_count=25)
-            except FileNotFoundError as err:
-                if name == "Bill-BM25":
-                    print(
-                        "Skipped — build Bill's index first: python bill_index_builder.py\n"
-                        f"({err})\n"
-                    )
-                    continue
-                raise
+            results = evaluate_model(fn, retrieve_count=25)
             print_results_table(results)
             summary_rows.append((name, *_mean_metrics(results)))
 

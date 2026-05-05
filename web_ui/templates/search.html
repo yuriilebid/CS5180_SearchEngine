@@ -11,8 +11,17 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="{{ url_for('static', filename='search.css') }}" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+      crossorigin="anonymous"
+    />
   </head>
   <body>
+    <div class="atmosphere" aria-hidden="true">
+      <div class="atmosphere__glow"></div>
+      <div class="atmosphere__mesh"></div>
+    </div>
     <button type="button" class="theme-fab" id="themeToggle" aria-label="Toggle theme">
       <span class="theme-fab__icon" data-light="☀" data-dark="☾">☀</span>
     </button>
@@ -31,17 +40,32 @@
           <span class="logo">Search</span>
         </div>
         <form class="search-form" id="searchForm" autocomplete="off">
-          <div class="search-bar-wrap">
-            <span class="search-glyph" aria-hidden="true">⌕</span>
-            <input
-              class="search-input"
-              id="q"
-              name="q"
-              type="search"
-              placeholder="Search…"
-              maxlength="2000"
-            />
-            <button type="submit" class="search-btn" id="submitBtn">Search</button>
+          <div class="search-combo">
+            <div class="search-bar-wrap">
+              <span class="search-glyph" aria-hidden="true">⌕</span>
+              <input
+                class="search-input"
+                id="q"
+                name="q"
+                type="search"
+                placeholder="Search…"
+                maxlength="2000"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                aria-autocomplete="list"
+                aria-controls="suggestDropdown"
+                aria-expanded="false"
+              />
+              <button type="submit" class="search-btn" id="submitBtn">Search</button>
+            </div>
+            <div
+              id="suggestDropdown"
+              class="suggest-dropdown"
+              hidden
+              role="listbox"
+              aria-label="Search suggestions"
+            ></div>
           </div>
           <div class="options-row">
             <label class="opt-label">
@@ -57,10 +81,11 @@
       <section class="results-wrap" id="resultsWrap" hidden>
         <div class="results-meta" id="resultsMeta"></div>
         <ul class="results" id="resultsList"></ul>
-        <nav class="pager" id="pager" hidden>
+        <nav class="pager" id="pager" hidden aria-label="Search results pages">
           <button type="button" class="pager__btn" id="prevPage">Previous</button>
-          <span class="pager__info" id="pageInfo"></span>
+          <div class="pager__nums" id="pageNums"></div>
           <button type="button" class="pager__btn" id="nextPage">Next</button>
+          <span class="pager__info" id="pageInfo"></span>
         </nav>
       </section>
 
@@ -76,6 +101,39 @@
       </div>
       <div class="model-list" id="modelList"></div>
     </aside>
+
+    <div
+      id="explainRoot"
+      class="explain-root"
+      hidden
+      aria-hidden="true"
+    >
+      <button
+        type="button"
+        class="explain-backdrop"
+        id="explainBackdrop"
+        tabindex="-1"
+        aria-label="Close explanation"
+      ></button>
+      <div
+        class="explain-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="explainTitle"
+      >
+        <div class="explain-dialog__sheen" aria-hidden="true"></div>
+        <header class="explain-toolbar">
+          <div class="explain-toolbar__left">
+            <span class="explain-kicker">Ranking explanation</span>
+            <h2 id="explainTitle" class="explain-title">Loading…</h2>
+          </div>
+          <button type="button" class="explain-close" id="explainClose" aria-label="Close">
+            <span class="explain-close__x" aria-hidden="true"></span>
+          </button>
+        </header>
+        <div class="explain-scroll" id="explainBody"></div>
+      </div>
+    </div>
 
     <div
       id="articleRoot"
@@ -109,6 +167,11 @@
       </div>
     </div>
 
-    <script src="{{ url_for('static', filename='search.js') }}"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script defer src="{{ url_for('static', filename='search.js') }}"></script>
   </body>
 </html>
