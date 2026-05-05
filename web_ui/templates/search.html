@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Search</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='search.css') }}" />
+  </head>
+  <body>
+    <button type="button" class="theme-fab" id="themeToggle" aria-label="Toggle theme">
+      <span class="theme-fab__icon" data-light="☀" data-dark="☾">☀</span>
+    </button>
+
+    <aside class="sidebar sidebar--left" id="leftSidebar">
+      <div class="sidebar__head">
+        <h2 class="sidebar__title">Metrics</h2>
+        <p class="sidebar__hint">Show or hide columns beside each result.</p>
+      </div>
+      <div class="toggle-list" id="metricToggles"></div>
+    </aside>
+
+    <main class="main">
+      <header class="top" id="topBar">
+        <div class="brand-row" id="brandRow">
+          <span class="logo">Search</span>
+        </div>
+        <form class="search-form" id="searchForm" autocomplete="off">
+          <div class="search-bar-wrap">
+            <span class="search-glyph" aria-hidden="true">⌕</span>
+            <input
+              class="search-input"
+              id="q"
+              name="q"
+              type="search"
+              placeholder="Search…"
+              maxlength="2000"
+            />
+            <button type="submit" class="search-btn" id="submitBtn">Search</button>
+          </div>
+          <div class="options-row">
+            <label class="opt-label">
+              Query ID <span class="opt-muted">(optional, for qrels metrics)</span>
+              <input class="opt-input" id="queryId" type="text" placeholder="e.g. 659" />
+            </label>
+          </div>
+        </form>
+      </header>
+
+      <section class="status" id="statusBar" hidden></section>
+
+      <section class="results-wrap" id="resultsWrap" hidden>
+        <div class="results-meta" id="resultsMeta"></div>
+        <ul class="results" id="resultsList"></ul>
+        <nav class="pager" id="pager" hidden>
+          <button type="button" class="pager__btn" id="prevPage">Previous</button>
+          <span class="pager__info" id="pageInfo"></span>
+          <button type="button" class="pager__btn" id="nextPage">Next</button>
+        </nav>
+      </section>
+
+      <footer class="foot" id="landingHint">
+        <p>Pick a model on the right. Toggle metrics on the left. Use the theme button for dark mode.</p>
+      </footer>
+    </main>
+
+    <aside class="sidebar sidebar--right" id="rightSidebar">
+      <div class="sidebar__head">
+        <h2 class="sidebar__title">Search model</h2>
+        <p class="sidebar__hint">Choose ranking function.</p>
+      </div>
+      <div class="model-list" id="modelList"></div>
+    </aside>
+
+    <div
+      id="articleRoot"
+      class="article-root"
+      hidden
+      aria-hidden="true"
+    >
+      <button type="button" class="article-backdrop" id="articleBackdrop" tabindex="-1" aria-label="Close article"></button>
+      <div
+        class="article-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="articleTitle"
+      >
+        <div class="article-dialog__glow" aria-hidden="true"></div>
+        <header class="article-toolbar">
+          <div class="article-toolbar__left">
+            <span class="article-kicker">Full document</span>
+            <span class="article-docid" id="articleDocId"></span>
+          </div>
+          <button type="button" class="article-close" id="articleClose" aria-label="Close">
+            <span class="article-close__x" aria-hidden="true"></span>
+          </button>
+        </header>
+        <div class="article-scroll">
+          <h1 id="articleTitle" class="article-title">Loading…</h1>
+          <p class="article-meta" id="articleMeta"></p>
+          <div class="article-rule" aria-hidden="true"></div>
+          <article class="article-body" id="articleBody"></article>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='search.js') }}"></script>
+  </body>
+</html>

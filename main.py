@@ -3,6 +3,7 @@ Interactive multi-model search and batch evaluation (--calc-map).
 """
 
 import json
+import re
 import sys
 
 from bill_score import score_bill_bm25
@@ -45,8 +46,75 @@ def _load_doc_text(documents_path="documents.json"):
 
 doc_text = _load_doc_text()
 
+_QUERY_ID_COLON = re.compile(r"^(\d+)\s*:\s*(.+)$", re.DOTALL)
 
-def display_results(ranked):
+
+def _load_query_id_to_text():
+    """query_id -> text from queries.json (empty dict if file missing)."""
+    try:
+        with _open_json_first("queries.json") as f:
+            rows = json.load(f)
+    except OSError:
+        return {}
+    out = {}
+    for row in rows:
+        qid = str(row.get("query_id", ""))
+        if qid:
+            out[qid] = row.get("text", "")
+    return out
+
+
+def parse_labeled_query(line, lookup):
+    """
+    Parse CLI query input: plain text, or labeled forms:
+      @query_id     — substitute text from queries.json (lookup)
+      id | text     — label + query (pipe)
+      id<TAB>text   — label + query (tab)
+      123: text     — numeric query_id + colon + text
+    Returns (label_or_None, text_for_retrieval). Empty text means skip this round.
+    """
+    s = line.strip()
+    if not s:
+        return None, ""
+    if s.startswith("@"):
+        qid = s[1:].strip()
+        if not qid:
+            print("(empty id after @)\n")
+            return None, ""
+        text = lookup.get(qid)
+        if text is None:
+            print(
+                f"(no query for id {qid!r} in queries.json — "
+                "use `id | text` or plain text)\n"
+            )
+            return None, ""
+        return qid, text
+    if "|" in s:
+        left, right = s.split("|", 1)
+        left, right = left.strip(), right.strip()
+        if left and right:
+            return left, right
+    if "\t" in s:
+        left, right = s.split("\t", 1)
+        left, right = left.strip(), right.strip()
+        if left and right:
+            return left, right
+    m = _QUERY_ID_COLON.match(s)
+    if m:
+        return m.group(1), m.group(2).strip()
+    return None, s
+
+
+def display_results(ranked, query_label=None, query_text=None):
+    if query_text:
+        qt = query_text.replace("\n", " ")
+        if len(qt) > 140:
+            qt = qt[:140] + "..."
+        if query_label:
+            print(f"Query [{query_label}]: {qt}")
+        else:
+            print(f"Query: {qt}")
+        print("────────────────────────────────────────────")
     if not ranked:
         print("(no results)")
         return
@@ -70,10 +138,13 @@ def display_results(ranked):
 
 
 def interactive():
+    lookup = _load_query_id_to_text()
     print(
         "\nOffline-first IR — models use precomputed index.pkl only.\n"
         "Available: BM25, VSM, BIM, Dirichlet LM, Hybrid RRF, Rocchio PRF, RM3, "
-        "Bill BM25 (finance-aware index).\n"
+        "Bill BM25 (finance-aware index).\n\n"
+        "Query input: plain text, or labeled — `id | text`, `id<TAB>text`, "
+        "`123: rest of query`, or `@id` to load text from queries.json.\n"
     )
     menu = (
         "[1] BM25\n"
@@ -104,15 +175,18 @@ def interactive():
         if sel not in dispatch:
             print("Invalid choice.\n")
             continue
-        q = input("Query: ").strip()
-        if not q:
+        q_raw = input("Query: ").strip()
+        if not q_raw:
+            continue
+        label, qtext = parse_labeled_query(q_raw, lookup)
+        if not qtext:
             continue
         try:
-            ranked = dispatch[sel](q, 25)
+            ranked = dispatch[sel](qtext, 25)
         except FileNotFoundError as err:
             print(f"{err}\n(For Bill BM25, run: python bill_index_builder.py)\n")
             continue
-        display_results(ranked)
+        display_results(ranked, query_label=label, query_text=qtext)
         print()
 
 
