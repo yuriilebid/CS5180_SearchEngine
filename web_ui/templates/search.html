@@ -26,7 +26,28 @@
       <span class="theme-fab__icon" data-light="☀" data-dark="☾">☀</span>
     </button>
 
-    <aside class="sidebar sidebar--left" id="leftSidebar">
+    <button
+      type="button"
+      id="drawerScrim"
+      class="drawer-scrim"
+      aria-label="Close side panels"
+      aria-hidden="true"
+      tabindex="-1"
+    ></button>
+
+    <aside
+      class="sidebar sidebar--left"
+      id="leftSidebar"
+      aria-label="Metric columns panel"
+    >
+      <button
+        type="button"
+        class="sidebar__close-btn"
+        id="leftSidebarClose"
+        aria-label="Close metrics panel"
+      >
+        ×
+      </button>
       <div class="sidebar__head">
         <h2 class="sidebar__title">Metrics</h2>
         <p class="sidebar__hint">Show or hide columns beside each result.</p>
@@ -37,7 +58,31 @@
     <main class="main">
       <header class="top" id="topBar">
         <div class="brand-row" id="brandRow">
-          <span class="logo">Search</span>
+          <button
+            type="button"
+            class="drawer-trigger drawer-trigger--metrics"
+            id="metricsDrawerToggle"
+            aria-controls="leftSidebar"
+            aria-expanded="false"
+            aria-label="Open metrics panel"
+          >
+            <span class="drawer-trigger__icon" aria-hidden="true">☰</span>
+            <span class="drawer-trigger__txt">Metrics</span>
+          </button>
+          <div class="brand-row__logo">
+            <span class="logo">Search</span>
+          </div>
+          <button
+            type="button"
+            class="drawer-trigger drawer-trigger--models"
+            id="modelDrawerToggle"
+            aria-controls="rightSidebar"
+            aria-expanded="false"
+            aria-label="Open model panel"
+          >
+            <span class="drawer-trigger__txt">Models</span>
+            <span class="drawer-trigger__icon" aria-hidden="true">⚙</span>
+          </button>
         </div>
         <form class="search-form" id="searchForm" autocomplete="off">
           <div class="search-combo">
@@ -90,11 +135,26 @@
       </section>
 
       <footer class="foot" id="landingHint">
-        <p>Pick a model on the right. Toggle metrics on the left. Use the theme button for dark mode.</p>
+        <p>
+          On a phone, use <strong>Metrics</strong> and <strong>Models</strong> in the bar above. On a
+          wide screen, those panels sit at the sides. Theme: sun / moon button.
+        </p>
       </footer>
     </main>
 
-    <aside class="sidebar sidebar--right" id="rightSidebar">
+    <aside
+      class="sidebar sidebar--right"
+      id="rightSidebar"
+      aria-label="Search model panel"
+    >
+      <button
+        type="button"
+        class="sidebar__close-btn"
+        id="rightSidebarClose"
+        aria-label="Close model panel"
+      >
+        ×
+      </button>
       <div class="sidebar__head">
         <h2 class="sidebar__title">Search model</h2>
         <p class="sidebar__hint">Choose ranking function.</p>

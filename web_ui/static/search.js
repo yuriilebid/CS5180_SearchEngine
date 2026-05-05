@@ -57,6 +57,8 @@
     explainBody: document.getElementById("explainBody"),
   };
 
+  let closeMobileDrawers = () => {};
+
   let models = [];
   let selectedModel = "bm25";
   let page = 1;
@@ -541,6 +543,7 @@
       explainCloseTimer = null;
     }
 
+    closeMobileDrawers();
     explainOpen = true;
     els.explainRoot.hidden = false;
     els.explainRoot.setAttribute("aria-hidden", "false");
@@ -662,6 +665,7 @@
       window.clearTimeout(articleCloseTimer);
       articleCloseTimer = null;
     }
+    closeMobileDrawers();
     articlePrevFocus = document.activeElement;
     els.articleRoot.hidden = false;
     els.articleRoot.setAttribute("aria-hidden", "false");
@@ -1014,8 +1018,18 @@
   els.articleBackdrop.addEventListener("click", closeArticle);
   els.articleClose.addEventListener("click", closeArticle);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && explainOpen) closeExplain();
-    else if (e.key === "Escape" && articleOpen) closeArticle();
+    if (e.key === "Escape") {
+      const drawersOpen =
+        document.body.classList.contains("layout--drawer-left-open") ||
+        document.body.classList.contains("layout--drawer-right-open");
+      if (drawersOpen && !explainOpen && !articleOpen) {
+        e.preventDefault();
+        closeMobileDrawers();
+        return;
+      }
+      if (explainOpen) closeExplain();
+      else if (articleOpen) closeArticle();
+    }
   });
 
   if (els.explainBackdrop) {
@@ -1143,8 +1157,128 @@
     syncCss();
   }
 
+  function initMobileDrawers() {
+    const scrim = document.getElementById("drawerScrim");
+    const leftSb = document.getElementById("leftSidebar");
+    const rightSb = document.getElementById("rightSidebar");
+    const metricsBtn = document.getElementById("metricsDrawerToggle");
+    const modelBtn = document.getElementById("modelDrawerToggle");
+    const leftClose = document.getElementById("leftSidebarClose");
+    const rightClose = document.getElementById("rightSidebarClose");
+
+    if (!scrim || !leftSb || !rightSb) return;
+
+    const mq = window.matchMedia("(max-width: 960px)");
+
+    function isDrawerMode() {
+      return mq.matches;
+    }
+
+    function setScrim(on) {
+      scrim.classList.toggle("is-visible", on);
+      scrim.setAttribute("aria-hidden", on ? "false" : "true");
+      scrim.tabIndex = on ? 0 : -1;
+    }
+
+    function syncDrawerState() {
+      if (!isDrawerMode()) {
+        document.body.classList.remove(
+          "layout--drawer-open",
+          "layout--drawer-left-open",
+          "layout--drawer-right-open"
+        );
+        setScrim(false);
+        metricsBtn?.setAttribute("aria-expanded", "false");
+        modelBtn?.setAttribute("aria-expanded", "false");
+        return;
+      }
+      const leftOn = document.body.classList.contains(
+        "layout--drawer-left-open"
+      );
+      const rightOn = document.body.classList.contains(
+        "layout--drawer-right-open"
+      );
+      const any = leftOn || rightOn;
+      document.body.classList.toggle("layout--drawer-open", any);
+      setScrim(any);
+    }
+
+    function closeDrawers() {
+      document.body.classList.remove(
+        "layout--drawer-left-open",
+        "layout--drawer-right-open",
+        "layout--drawer-open"
+      );
+      metricsBtn?.setAttribute("aria-expanded", "false");
+      modelBtn?.setAttribute("aria-expanded", "false");
+      setScrim(false);
+    }
+
+    closeMobileDrawers = closeDrawers;
+
+    function openLeft() {
+      document.body.classList.remove("layout--drawer-right-open");
+      document.body.classList.add("layout--drawer-left-open");
+      modelBtn?.setAttribute("aria-expanded", "false");
+      metricsBtn?.setAttribute("aria-expanded", "true");
+      syncDrawerState();
+    }
+
+    function openRight() {
+      document.body.classList.remove("layout--drawer-left-open");
+      document.body.classList.add("layout--drawer-right-open");
+      metricsBtn?.setAttribute("aria-expanded", "false");
+      modelBtn?.setAttribute("aria-expanded", "true");
+      syncDrawerState();
+    }
+
+    function toggleLeft(ev) {
+      if (!isDrawerMode()) return;
+      if (ev) ev.preventDefault();
+      if (document.body.classList.contains("layout--drawer-left-open")) {
+        closeDrawers();
+        return;
+      }
+      openLeft();
+    }
+
+    function toggleRight(ev) {
+      if (!isDrawerMode()) return;
+      if (ev) ev.preventDefault();
+      if (document.body.classList.contains("layout--drawer-right-open")) {
+        closeDrawers();
+        return;
+      }
+      openRight();
+    }
+
+    function closeLeftOnly() {
+      document.body.classList.remove("layout--drawer-left-open");
+      metricsBtn?.setAttribute("aria-expanded", "false");
+      syncDrawerState();
+    }
+
+    function closeRightOnly() {
+      document.body.classList.remove("layout--drawer-right-open");
+      modelBtn?.setAttribute("aria-expanded", "false");
+      syncDrawerState();
+    }
+
+    metricsBtn?.addEventListener("click", toggleLeft);
+    modelBtn?.addEventListener("click", toggleRight);
+    scrim.addEventListener("click", closeDrawers);
+    leftClose?.addEventListener("click", closeLeftOnly);
+    rightClose?.addEventListener("click", closeRightOnly);
+
+    mq.addEventListener("change", closeDrawers);
+    window.addEventListener("orientationchange", () => {
+      window.setTimeout(closeDrawers, 300);
+    });
+  }
+
   loadTheme();
   buildMetricToggles();
+  initMobileDrawers();
   initAmbientCursor();
   fetchModels().catch(() => {
     setStatus("Could not load models.", true);
