@@ -1,12 +1,5 @@
-# Vercel Flask: preferred custom module (see Flask on Vercel docs).
+# Only Vercel tool config — avoid [project] here so installs use requirements.txt
+# (see vercel.json installCommand).
+
 [tool.vercel]
 entrypoint = "web_ui.app:app"
-
-# Fallback: some CLI builds read [project.scripts] "app".
-[project]
-name = "cs5180-search-engine"
-version = "0.1.0"
-requires-python = ">=3.11"
-
-[project.scripts]
-app = "web_ui.app:app"
