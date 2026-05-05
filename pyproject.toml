@@ -1,0 +1,3 @@
+# Tells Vercel where the Flask `app` lives (see Vercel Flask docs).
+[tool.vercel]
+entrypoint = "web_ui.app:app"
