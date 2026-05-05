@@ -6,11 +6,30 @@ All corpus statistics come from index.pkl (loaded once at import).
 import math
 import pickle
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from text_processor import preprocess
 
-with open("index.pkl", "rb") as f:
-    _idx = pickle.load(f)
+_PKG_ROOT = Path(__file__).resolve().parent
+_INDEX_PATH = _PKG_ROOT / "index.pkl"
+
+
+def _load_index() -> dict:
+    paths = [_INDEX_PATH, Path.cwd() / "index.pkl"]
+    for idx_path in paths:
+        try:
+            with idx_path.open("rb") as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+            continue
+    searched = ", ".join(str(p) for p in paths)
+    raise FileNotFoundError(
+        "index.pkl not found. Expected next to retrieval.py so serverless cwd does not matter. "
+        f"Tried: [{searched}]. Deploy must include repo-root index.pkl (not excluded by .vercelignore)."
+    )
+
+
+_idx = _load_index()
 
 inverted = _idx["inverted"]
 doc_ids = _idx["doc_ids"]
